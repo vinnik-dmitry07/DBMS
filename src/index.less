@@ -1,9 +1,9 @@
-body,
-html {
+body, html {
   padding: 0;
   margin: 0;
   font-family: sans-serif;
 }
+
 #root {
   display: flex;
   flex-direction: column;
@@ -11,33 +11,41 @@ html {
   height: 100vh;
   padding: 8px;
 }
+
 .fill-grid {
   height: 100%;
 }
+
 .small-grid {
   height: 300px;
 }
+
 .big-grid {
   height: 600px;
 }
+
+@split: 15%;
 .SplitPane {
   width: 100%;
   height: 100%;
 }
+
 .SplitPane-left {
   float: left;
-  width: 15%;
+  width: @split;
   height: 100%;
 }
+
 .SplitPane-right {
   float: left;
-  width: 85%;
+  width: 100% - @split;
   height: 100%;
 }
+
 .add .rct-title {
-  cursor: pointer !important;
+  cursor:pointer !important;
 }
+
 .add .rct-bare-label:hover {
-  background: rgba(51, 51, 204, 0.1);
+    background: rgba(51, 51, 204, 0.1);
 }
-/*# sourceMappingURL=index.css.map */

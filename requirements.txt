@@ -1,0 +1,8 @@
+flask
+python-dotenv
+grpcio-tools
+Flask-GraphQL
+graphene
+requests
+pymongo
+gunicorn
