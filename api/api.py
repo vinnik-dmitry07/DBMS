@@ -1,5 +1,6 @@
+import inspect
 import traceback
-from abc import ABC, ABCMeta
+from abc import ABC, abstractmethod
 from functools import reduce
 from operator import getitem
 from pydoc import locate
@@ -18,20 +19,11 @@ class IdNode(Node, ABC):
         self.id_ = id_
 
 
-class CheckChildren(ABCMeta):
-    def __init__(cls, name, bases, dct, **_):
-        super().__init__(name, bases, dct)
-
-        # noinspection PyDecorator
-        @classmethod
-        def __init_subclass__(cls_, children_type):
-            cls_.children_type = children_type
-
-        cls.__init_subclass__ = __init_subclass__
-
-
-class Branch(dict, ABC, metaclass=CheckChildren):
-    children_type = None
+class Branch(dict, ABC):
+    @property
+    @abstractmethod
+    def children_type(self):
+        raise
 
     def __init__(self, children: List):
         super().__init__()
@@ -39,7 +31,7 @@ class Branch(dict, ABC, metaclass=CheckChildren):
             self.add(child)
 
     def add(self, child: IdNode, id_=None):
-        assert isinstance(child, self.children_type), type(child)
+        assert type(child) == self.children_type, (type(child), self.children_type)
         if id_ is None:
             id_ = child.id_
         if id_ in self:
@@ -56,8 +48,18 @@ class Branch(dict, ABC, metaclass=CheckChildren):
             child.children = [child[child_id] for child_id in child.keys()]
         return child
 
+    def __setitem__(self, key, value):
+        call_func = inspect.stack()[1][3]
+        assert call_func == 'add'
+        dict.__setitem__(self, key, value)
 
-class IdBranch(IdNode, Branch, children_type=IdNode, metaclass=CheckChildren):
+
+class IdBranch(IdNode, Branch, ABC):
+    @property
+    @abstractmethod
+    def children_type(self):
+        raise
+
     def __init__(self, id_, children: Optional[List[IdNode]] = None):
         if not children:
             children = []
@@ -193,7 +195,9 @@ class Row(IdNode, list):
             self.mongo_collection.update_one({'id': self.id_}, {'$set': {self.schema.idx_to_id(column_idx): value}})
 
 
-class Table(IdBranch, children_type=Row):
+class Table(IdBranch):
+    children_type = Row
+
     def __init__(self, id_: str,
                  raw_schema: Optional[Dict] = None,
                  init_rows: Optional[List[Dict]] = None,
@@ -283,7 +287,9 @@ class Table(IdBranch, children_type=Row):
             raise
 
 
-class Base(IdBranch, children_type=Table):
+class Base(IdBranch):
+    children_type = Table
+
     def __init__(self, id_: str,
                  children: Optional[List[Table]] = None,
                  mongo_base: Optional[MongoDatabase] = None):
@@ -303,7 +309,9 @@ class Base(IdBranch, children_type=Table):
             self.mongo_base.drop_collection(table_id)
 
 
-class Root(Branch, children_type=Base):
+class Root(Branch):
+    children_type = Base
+
     def pop(self, base_id):
         dict.pop(self, base_id)
         if mongo_client:
