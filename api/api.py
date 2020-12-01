@@ -97,7 +97,7 @@ class Schema(dict):
     def validators(self, column_id):
         validators = []
         for validator_def in self['columns'][column_id]['validator_defs']:
-            # the module validators contains safe classes
+            # the validators module contains safe classes
             validator_type = locate(f'validators.{validator_def["name"]}')
             assert isinstance(validator_type, type)
 
@@ -151,16 +151,9 @@ class Schema(dict):
             self.mongo_collection.update_one({'id': 'schema'}, {'$set': self}, upsert=True)
 
 
-# class Value(IdNode):
-#     @staticmethod
-#     def pack(item):
-#         return type(item.__class__.__name__ + 'Value', (item.__class__, Value), {})(item)
-
-
 class Row(IdNode, list):
     def __init__(self, id_: int, schema: Schema, raw_values: Iterable, mongo_collection: MongoCollection):
         IdNode.__init__(self, id_)
-        # self.extend([Value.pack(v) for v in raw_values])
         self.extend(raw_values)
         self.schema = schema
         if mongo_client:
@@ -225,6 +218,7 @@ class Table(IdBranch, children_type=Row):
         self.schema = Schema(raw_schema, mongo_collection)
 
         if mongo_client:
+            # noinspection PyUnboundLocalVariable
             for row in id_rows:
                 row_id = row.pop('id')
                 self.add(row, row_id, init_fill=True)
@@ -238,7 +232,7 @@ class Table(IdBranch, children_type=Row):
     def add(self, raw_row: Dict, row_id=None, init_fill=False):
         if not init_fill:
             assert list(raw_row.keys()) == self.schema.column_ids
-            assert all(validator(val) for column_id, val in raw_row.items()
+            assert all(validator(value) for column_id, value in raw_row.items()
                        for validator in self.schema.validators(column_id))
             if mongo_client:
                 self.mongo_collection.insert_one({'id': self.schema.row_index + 1, **raw_row})
@@ -259,10 +253,12 @@ class Table(IdBranch, children_type=Row):
         else:
             values = []
 
+        assert len(values) == len(self)
+
         validator_defs = description['validator_defs'] if 'validator_defs' in description else []
         self.schema.add(column_id, validator_defs)
 
-        # assert idx == self.schema.id_to_idx(column_id)  # todo move to tests
+        assert all(validator(value) for validator in self.schema.validators(column_id) for value in values)
 
         column_idx = self.schema.id_to_idx(column_id)
         for row, val in zip(self.values(), values):
@@ -313,7 +309,7 @@ class Root(Branch, children_type=Base):
         if mongo_client:
             mongo_client.drop_database(base_id)
 
-    def create(self, path: List[str]) -> bool:
+    def create(self, path: List) -> bool:
         try:
             branch = self.read(path[:-1])
             id_ = path[-1]
@@ -354,41 +350,48 @@ class Root(Branch, children_type=Base):
             print(traceback.format_exc())
             return False
 
-    def read(self, path: List[str]) -> Union['Root', Table, Row]:
+    def read(self, path: List) -> Union['Root', Table, Row]:
         return self[path]
 
     def read_columns(self, table_path: List[str]) -> Dict:
         table: Table = self.read(table_path)
-        return dict(zip(table.schema.column_ids, zip(*table.values())))
+        return dict(zip(table.schema.column_ids, map(list, zip(*table.values()))))
 
     def read_column(self, table_path: List[str], column_id: str) -> List:
         table: Table = self.read(table_path)
         column_idx = table.schema.id_to_idx(column_id)
-        return [row[column_idx] for row in table]
+        return [row[column_idx] for row in table.values()]
+
+    def read_schema(self, table_path: List[str]):
+        return self.read(table_path).schema
 
     def update_row(self, table_path: List[str], row_id: int, sub_row: Dict):
         try:
             table: Table = self.read(table_path)
             assert set(sub_row.keys()) <= set(table.schema.column_ids)
             for column_id in sub_row.keys():
+                column_validators = table.schema.validators(column_id)
+                assert all(validator(sub_row[column_id]) for validator in column_validators)
                 table[row_id][column_id] = sub_row[column_id]
             return True
         except Exception:
             print(traceback.format_exc())
             return False
 
-    def update_column(self, table_path: List[str], column_id: str, column: Dict):
+    def update_column(self, table_path: List[str], column_id: str, sub_column: Dict[str, List]):
         try:
             table: Table = self.read(table_path)
-            assert set(column.keys()) <= set(table.keys())
-            for row_id in column.keys():
-                table[row_id][column_id] = column[row_id]
+            assert set(sub_column.keys()) <= set(table.keys())
+            column_validators = table.schema.validators(column_id)
+            assert all(validator(value) for validator in column_validators for value in sub_column.values())
+            for row_id in sub_column.keys():
+                table[row_id][column_id] = sub_column[row_id]
             return True
         except Exception:
             print(traceback.format_exc())
             return False
 
-    def delete(self, path: List[str]) -> bool:
+    def delete(self, path: List) -> bool:
         try:
             self.read(path[:-1]).pop(path[-1])
             return True
@@ -421,7 +424,7 @@ class Root(Branch, children_type=Base):
                         new_table.add(new_row)
 
             return True
-        except Exception as e:
+        except Exception:
             print(traceback.format_exc())
             return False
 

@@ -3,8 +3,8 @@ from unittest import TestCase
 import requests
 
 import api
+import grpc_.client as client
 from api import Root, Base, Table
-import client
 
 
 class TestTable(TestCase):
@@ -56,15 +56,22 @@ class TestRest(TestCase):
     def test1_create(self):
         assert requests.post('http://localhost:5000/tree/db_test/').json()['success']
         assert requests.get('http://localhost:5000/tree/db_test/').ok
+
         assert requests.post('http://localhost:5000/tree/db_test/tb_test/').json()['success']
         assert requests.get('http://localhost:5000/tree/db_test/tb_test/rows/').ok
+
         type_validator_def = {'name': 'TypeValidator', 'params': {'type_descr': 'int'}}
         assert requests.post('http://localhost:5000/tree/db_test/tb_test/columns/',
                              json={'co1': {'validator_defs': [type_validator_def]}, 'co2': {}}).json()['success']
+        r0 = requests.get('http://localhost:5000/tree/db_test/tb_test/schema/')
+        assert r0.json() == {'columns': {'co1': {'validator_defs': [type_validator_def]},
+                                         'co2': {'validator_defs': []}}, 'row_index': -1}, (r0.ok, r0.json())
+
         assert requests.post('http://localhost:5000/tree/db_test/tb_test/rows/',
                              json=[{'co1': 1, 'co2': 2}, {'co1': 3, 'co2': 4}]).json()['success']
         r1 = requests.get('http://localhost:5000/tree/db_test/tb_test/rows/')
         assert list(r1.json().values())[-1] == [3, 4], (r1.ok, r1.json())
+
         assert requests.post('http://localhost:5000/tree/db_test/tb_test/columns/',
                              json={'co3': {'values': [5, 6]}}).json()['success']
         r2 = requests.get('http://localhost:5000/tree/db_test/tb_test/rows/')
@@ -83,9 +90,12 @@ class TestRest(TestCase):
                                    'table1_path': ['db_test', 'tb_test'],
                                    'table2_path': ['db_test1', 'tb_test1'],
                                    'new_table_path': ['db_test1', 'tb_test2']}).json()['success']
+        r4 = requests.get('http://localhost:5000/tree/db_test1/tb_test2/columns/')
+        assert r4.json() == {'co1': [3], 'co2': [4], 'co3': [6], 'co4': [4]}, (r4.ok, r4.json())
 
-        r4 = requests.get('http://localhost:5000/tree/db_test1/tb_test2/rows/')
-        assert sorted(list(r4.json().values())[0]) == [3, 4, 4, 6], (r4.ok, r4.json())
+        assert not requests.post('http://localhost:5000/tree/db_test/tb_test/columns/',
+                                 json={'co4': {'validator_defs': [{'name': 'EmailValidator', 'params': {}}],
+                                               'values': ['vinnik.dmitry07 gmail.com'] * 2}}).json()['success']
 
     def test2_read(self):
         assert requests.get('http://localhost:5000/tree/').ok
@@ -100,13 +110,14 @@ class TestRest(TestCase):
     def test3_update(self):
         assert requests.put('http://localhost:5000/tree/db_test/tb_test/rows/0/', json={'co1': 7}).json()['success']
         assert requests.get('http://localhost:5000/tree/db_test/tb_test/rows/0/co1/').json() == 7
+        assert requests.put('http://localhost:5000/tree/db_test/tb_test/columns/co1/', json={0: 8}).json()['success']
+        assert requests.get('http://localhost:5000/tree/db_test/tb_test/columns/co1/0/').json() == 8
 
     def test4_delete(self):
         assert requests.delete('http://localhost:5000/tree/db_test/tb_test/columns/co1/').json()['success']
         assert requests.delete('http://localhost:5000/tree/db_test/tb_test/rows/0/').json()['success']
         assert requests.delete('http://localhost:5000/tree/db_test/tb_test/').json()['success']
         assert requests.delete('http://localhost:5000/tree/db_test/').json()['success']
-        assert not requests.get('http://localhost:5000/tree/db_test/').ok
 
 
 class TestGRPC(TestCase):
@@ -117,54 +128,60 @@ class TestGRPC(TestCase):
 
     def test1_post(self):
         assert client.create_base('db_test').success
-        assert client.read_base('db_test')
+        client.read_base('db_test')
+
         assert client.create_table('db_test', 'tb_test').success
-        assert client.read_rows('db_test', 'tb_test')
+        client.read_rows('db_test', 'tb_test')
+
         type_validator_def = {'name': 'TypeValidator', 'params': {'type_descr': 'int'}}
         assert client.create_columns('db_test', 'tb_test',
                                      {'co1': {'validator_defs': [type_validator_def]}, 'co2': {}}).success
+        r0 = client.read_schema('db_test', 'tb_test')
+        assert r0 == {'columns': {'co1': {'validator_defs': [type_validator_def]},
+                                  'co2': {'validator_defs': []}}, 'row_index': -1}, r0
+
         assert client.create_rows('db_test', 'tb_test', [{'co1': 1, 'co2': 2}, {'co1': 3, 'co2': 4}]).success
-
         r1 = client.read_rows('db_test', 'tb_test')
-        type_rows = [[[elem.ListFields()[0][1]
-                       for elem in type_value_pair.list_value.values]
-                      for type_value_pair in row.list.values]
-                     for row in r1.children.nodes]
+        assert list(r1.values())[-1] == [3, 4], r1
 
-        assert client.from_type_pairs(type_rows[-1]) == [3, 4], r1
         assert client.create_columns('db_test', 'tb_test', {'co3': {'values': [5, 6]}}).success
-
         r2 = client.read_rows('db_test', 'tb_test')
-        assert [client.from_type_pairs(r.list) for r in r2.children.nodes] == [[1, 2, 5], [3, 4, 6]], r2
+        assert list(r2.values()) == [[1, 2, 5], [3, 4, 6]], r2
+        r3 = client.read_columns('db_test', 'tb_test')
+        assert list(r3.values()) == [[1, 3], [2, 4], [5, 6]], r3
 
         assert client.create_base('db_test1').success
         assert client.create_table('db_test1', 'tb_test1').success
         assert client.create_columns('db_test1', 'tb_test1', {'co1': {}, 'co4': {}}).success
-        assert client.create_rows('db_test', 'tb_test', [{'co1': 3, 'co4': 4}, {'co1': 5, 'co4': 6}]).success
-
+        assert client.create_rows('db_test1', 'tb_test1', [{'co1': 3, 'co4': 4}, {'co1': 5, 'co4': 6}]).success
         assert client.intersect_tables(by_column_id='co1',
                                        table1_path=['db_test', 'tb_test'],
                                        table2_path=['db_test1', 'tb_test1'],
-                                       new_table_path=['db_test1', 'tb_test2'])
+                                       new_table_path=['db_test1', 'tb_test2']).success
+        r4 = client.read_columns('db_test1', 'tb_test2')
+        assert r4 == {'co2': [4], 'co3': [6], 'co1': [3], 'co4': [4]}, r4
 
-        r3 = client.read_rows('db_test1', 'tb_test2')
-        assert sorted(list(r3.values())[0]) == [3, 4, 4, 6], r3
+        assert not client.create_columns('db_test', 'tb_test',
+                                         {'co4': {'validator_defs': [{'name': 'EmailValidator', 'params': {}}],
+                                                  'values': ['vinnik.dmitry07 gmail.com'] * 2}}).success
 
     def test2_get(self):
-        assert client.read_tree()
-        assert client.read_base('db_test')
-        assert client.read_rows('db_test', 'tb_test')
-        assert client.read_row('db_test', 'tb_test', row_id=0)
-        assert client.read_columns('db_test', 'tb_test')
-        assert client.read_column('db_test', 'tb_test', 'co1')
-        assert client.read_value('db_test', 'tb_test', row_id=0, column_id='co1')
+        client.read_tree()
+        client.read_base('db_test')
+        client.read_rows('db_test', 'tb_test')
+        client.read_row('db_test', 'tb_test', row_id=0)
+        client.read_columns('db_test', 'tb_test')
+        client.read_column('db_test', 'tb_test', 'co1')
+        client.read_value('db_test', 'tb_test', row_id=0, column_id='co1')
 
     def test3_put(self):
-        assert client.update_row('db_test', 'tb_test', row_id=0, sub_row={'co1': 7})
+        assert client.update_row('db_test', 'tb_test', row_id=0, sub_row={'co1': 7}).success
         assert client.read_value('db_test', 'tb_test', row_id=0, column_id='co1') == 7
+        assert client.update_column('db_test', 'tb_test', column_id='co1', sub_column={0: 8}).success
+        assert client.read_value('db_test', 'tb_test', row_id=0, column_id='co1') == 8
 
     def test4_delete(self):
-        assert client.delete_column('db_test', 'tb_test', 'co1')
-        assert client.delete_row('db_test', 'tb_test', row_id=0)
-        assert client.delete_table('db_test', 'tb_test')
-        assert client.delete_base('db_test')
+        assert client.delete_column('db_test', 'tb_test', 'co1').success
+        assert client.delete_row('db_test', 'tb_test', row_id=0).success
+        assert client.delete_table('db_test', 'tb_test').success
+        assert client.delete_base('db_test').success

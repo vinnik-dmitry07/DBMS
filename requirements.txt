@@ -6,3 +6,5 @@ graphene
 requests
 pymongo
 gunicorn
+protobuf
+grpcio

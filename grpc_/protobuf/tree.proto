@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+import "google/protobuf/struct.proto";
+
+message PathRequest {
+  google.protobuf.ListValue path = 1;
+}
+
+message SuccessResponse {
+  bool success = 1;
+}
+
+message CreateRowsRequest {
+  repeated string table_path = 1;
+  repeated google.protobuf.Struct rows = 2;
+}
+
+message CreateColumnsRequest {
+  repeated string table_path = 1;
+  map<string, google.protobuf.Struct> columns = 2;
+}
+
+message UpdateRowRequest {
+  repeated string table_path = 1;
+  int64 row_id = 2;
+  google.protobuf.Struct sub_row = 3;
+}
+
+message UpdateColumnRequest {
+  repeated string table_path = 1;
+  string column_id = 2;
+  google.protobuf.Struct sub_column = 3;
+}
+
+message IntersectTablesRequest {
+  string by_column_id = 1;
+  repeated string table1_path = 2;
+  repeated string table2_path = 3;
+  repeated string new_table_path = 4;
+}
+
+
+service Tree {
+  // Create
+  rpc CreateBase(PathRequest) returns (SuccessResponse) {};
+  rpc CreateTable(PathRequest) returns (SuccessResponse) {};
+  rpc CreateRows(CreateRowsRequest) returns (SuccessResponse) {};
+  rpc CreateColumns(CreateColumnsRequest) returns (SuccessResponse) {};
+
+  // Read
+  rpc ReadTree(PathRequest) returns (google.protobuf.Struct) {};
+  rpc ReadBase(PathRequest) returns (google.protobuf.Struct) {};
+  rpc ReadTable(PathRequest) returns (google.protobuf.Struct) {};
+  rpc ReadRows(PathRequest) returns (google.protobuf.Struct) {};
+  rpc ReadColumns(PathRequest) returns (google.protobuf.Struct) {};
+  rpc ReadRow(PathRequest) returns (google.protobuf.ListValue) {};
+  rpc ReadColumn(PathRequest) returns (google.protobuf.ListValue) {};
+  rpc ReadValue(PathRequest) returns (google.protobuf.ListValue) {};
+  rpc ReadSchema(PathRequest) returns (google.protobuf.Struct) {};
+
+  // Update
+  rpc UpdateRow(UpdateRowRequest) returns (SuccessResponse) {};
+  rpc UpdateColumn(UpdateColumnRequest) returns (SuccessResponse) {};
+
+  // Delete
+  rpc DeleteBase(PathRequest) returns (SuccessResponse) {};
+  rpc DeleteTable(PathRequest) returns (SuccessResponse) {};
+  rpc DeleteRow(PathRequest) returns (SuccessResponse) {};
+  rpc DeleteColumn(PathRequest) returns (SuccessResponse) {};
+
+  rpc IntersectTables(IntersectTablesRequest) returns (SuccessResponse) {};
+}
