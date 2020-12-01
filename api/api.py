@@ -161,33 +161,27 @@ class Row(IdNode, list):
         if mongo_client:
             self.mongo_collection = mongo_collection
 
-    def __getitem__(self, item):
+    def item_to_id_idx(self, item):
         if isinstance(item, int):
-            return list.__getitem__(self, item)
-        elif isinstance(item, str):
-            return list.__getitem__(self, self.schema.id_to_idx(column_id=item))
+            return self.schema.idx_to_id(column_idx=item), item
+        elif isinstance(item, str):  # Try to avoid
+            # print([f'{s.function}:{s.lineno}' for s in inspect.stack()])
+            return item, self.schema.id_to_idx(column_id=item)
         else:
             raise
 
+    def __getitem__(self, item):
+        return list.__getitem__(self, self.item_to_id_idx(item)[1])
+
     def __setitem__(self, item, value):
-        if isinstance(item, int):
-            column_id, column_idx = self.schema.idx_to_id(item), item
-        elif isinstance(item, str):
-            column_id, column_idx = item, self.schema.id_to_idx(column_id=item)
-        else:
-            raise
+        column_id, column_idx = self.item_to_id_idx(item)
         list.__setitem__(self, column_idx, value)
         if mongo_client:
             self.mongo_collection.update_one({'id': self.id_}, {'$set': {column_id: value}})
 
     # noinspection PyMethodOverriding
     def pop(self, item):
-        if isinstance(item, int):
-            return list.pop(self, item)
-        elif isinstance(item, str):
-            return list.pop(self, self.schema.id_to_idx(column_id=item))
-        else:
-            raise
+        return list.pop(self, self.item_to_id_idx(item)[1])
 
     def insert(self, column_idx: int, value):
         list.insert(self, column_idx, value)
@@ -234,18 +228,20 @@ class Table(IdBranch):
                 self.add(dict(zip(self.schema.column_ids, r)))
 
     def add(self, raw_row: Dict, row_id=None, init_fill=False):
+        schema_column_ids = self.schema.column_ids
         if not init_fill:
-            assert list(raw_row.keys()) == self.schema.column_ids
+            assert set(raw_row.keys()) == set(schema_column_ids)
             assert all(validator(value) for column_id, value in raw_row.items()
                        for validator in self.schema.validators(column_id))
             if mongo_client:
                 self.mongo_collection.insert_one({'id': self.schema.row_index + 1, **raw_row})
 
+        ordered_values = [raw_row[column_id] for column_id in schema_column_ids]
         if row_id is None:
-            row = Row(self.schema.row_index + 1, self.schema, raw_row.values(), self.mongo_collection)
+            row = Row(self.schema.row_index + 1, self.schema, ordered_values, self.mongo_collection)
             self.schema.row_index += 1
         else:
-            row = Row(row_id, self.schema, raw_row.values(), self.mongo_collection)
+            row = Row(row_id, self.schema, ordered_values, self.mongo_collection)
         IdBranch.add(self, row)
 
     def add_column(self, column_id: str, description: Dict):
@@ -280,8 +276,9 @@ class Table(IdBranch):
         if isinstance(item, int):
             dict.pop(self, item)
         elif isinstance(item, str):
+            column_idx = self.schema.id_to_idx(column_id=item)
             for row in self.values():
-                row.pop(item)
+                row.pop(column_idx)
             self.schema.pop(item)
         else:
             raise
@@ -415,7 +412,7 @@ class Root(Branch):
             tb1_column_ids = tb1.schema.column_ids
             tb2_column_ids = tb2.schema.column_ids
 
-            assert set(tb1_column_ids).intersection(tb2_column_ids) >= {by_column_id}, \
+            assert set(tb1_column_ids).intersection(tb2_column_ids) == {by_column_id}, \
                 (by_column_id, tb1_column_ids, tb2_column_ids)
 
             self.create(new_table_path)
@@ -424,12 +421,12 @@ class Root(Branch):
             self.create_columns(new_table_path, {column_id: {} for column_id in new_column_ids})
 
             new_table = self.read(new_table_path)
+            by_column_idx1 = tb1.schema.id_to_idx(by_column_id)
+            by_column_idx2 = tb2.schema.id_to_idx(by_column_id)
             for row1 in tb1.values():
                 for row2 in tb2.values():
-                    if row1[by_column_id] == row2[by_column_id]:
-                        new_row = {column_id: row1[column_id] if column_id in tb1_column_ids else row2[column_id]
-                                   for column_id in new_column_ids}
-                        new_table.add(new_row)
+                    if row1[by_column_idx1] == row2[by_column_idx2]:
+                        new_table.add(dict(zip(tb1_column_ids + tb2_column_ids, row1 + row2)))
 
             return True
         except Exception:
