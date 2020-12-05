@@ -12,6 +12,7 @@ def serve():
     from grpc_.services.tree import TreeServicer
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    # noinspection PyTypeChecker
     tree_service.add_TreeServicer_to_server(TreeServicer(api), server)
     server.add_insecure_port('[::]:50051')
     server.start()
