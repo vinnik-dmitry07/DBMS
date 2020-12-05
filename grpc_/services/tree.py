@@ -3,7 +3,6 @@ from pydoc import locate
 from google.protobuf.json_format import MessageToDict
 from google.protobuf.struct_pb2 import Struct, ListValue
 
-import api
 import grpc_.messages.tree_pb2 as tree_messages
 import grpc_.messages.tree_pb2_grpc as tree_service
 
@@ -76,7 +75,9 @@ def from_jsonable_columns(columns):
 
 class TreeServicer(tree_service.TreeServicer):
     ROW_DEPTH = 2
-    tree = api.create_tree()
+
+    def __init__(self, api):
+        self.tree = api.create_tree()
 
     def create(self, path):
         resp = tree_messages.SuccessResponse()

@@ -247,18 +247,18 @@ class Table(IdBranch):
     def add_column(self, column_id: str, description: Dict):
         assert column_id not in self.schema.column_ids
 
-        if 'values' in description:
-            values = description['values']
-            assert len(values) == len(self)
-        else:
-            values = []
+        values = description['values'] if 'values' in description else []
 
         assert len(values) == len(self)
 
         validator_defs = description['validator_defs'] if 'validator_defs' in description else []
         self.schema.add(column_id, validator_defs)
 
-        assert all(validator(value) for validator in self.schema.validators(column_id) for value in values)
+        try:
+            assert all(validator(value) for validator in self.schema.validators(column_id) for value in values)
+        except Exception as e:
+            self.schema.pop(column_id)
+            raise e
 
         column_idx = self.schema.id_to_idx(column_id)
         for row, val in zip(self.values(), values):
